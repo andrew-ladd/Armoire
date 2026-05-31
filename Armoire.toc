@@ -1,0 +1,8 @@
+## Interface: 20505
+## Title: Armoire
+## Notes: Save and equip gear sets with a small, per-character wardrobe.
+## Author: Andre
+## Version: 0.2.0
+## SavedVariablesPerCharacter: ArmoireDB
+
+Armoire.lua
