@@ -197,7 +197,7 @@ function Armoire:DeleteSet(name)
         end
     end
 
-    Print("No set named \"" .. name .. "\".")
+    Print("No set named \"" .. tostring(name) .. "\".")
 end
 
 function Armoire:ConfirmDeleteSet(name)
