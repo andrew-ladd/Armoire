@@ -2,7 +2,7 @@
 ## Title: Armoire
 ## Notes: Save and equip gear sets with a small, per-character wardrobe.
 ## Author: Andre
-## Version: 0.2.0
+## Version: 0.2.1
 ## Category: Bags & Inventory
 ## IconTexture: Interface\AddOns\Armoire\armoire-icon-256.png
 ## SavedVariablesPerCharacter: ArmoireDB
