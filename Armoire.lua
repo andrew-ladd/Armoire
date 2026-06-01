@@ -203,7 +203,11 @@ end
 function Armoire:ConfirmDeleteSet(name)
     local set = FindSet(name)
     if not set then
-        Print("No set named \"" .. tostring(name) .. "\".")
+        if Normalize(name) == "" then
+            Print("Usage: /armoire delete <set name>")
+        else
+            Print("No set named \"" .. tostring(name) .. "\".")
+        end
         return
     end
 
