@@ -651,7 +651,7 @@ function Armoire:ToggleUI(anchorToCharacter)
     if self.frame:IsShown() then
         self.frame:Hide()
     else
-        if anchorToCharacter then
+        if anchorToCharacter and not (DB and DB.framePosition) then
             self:PositionNearCharacterFrame()
         end
         self.frame:Show()
