@@ -59,6 +59,7 @@ jobs:
           CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
           CURSEFORGE_GAME_VERSION_NAMES: ${{ vars.CURSEFORGE_GAME_VERSION_NAMES }}
           CURSEFORGE_GAME_VERSION_IDS: ${{ vars.CURSEFORGE_GAME_VERSION_IDS }}
+          CURSEFORGE_LATEST_GAME_VERSION_SEED_ID: ${{ vars.CURSEFORGE_LATEST_GAME_VERSION_SEED_ID }}
         run: |
           set -euo pipefail
 
@@ -72,8 +73,8 @@ jobs:
             exit 1
           fi
 
-          if [[ -z "${CURSEFORGE_GAME_VERSION_NAMES}" && -z "${CURSEFORGE_GAME_VERSION_IDS}" ]]; then
-            echo "Missing repository variable: set CURSEFORGE_GAME_VERSION_IDS or CURSEFORGE_GAME_VERSION_NAMES" >&2
+          if [[ -z "${CURSEFORGE_GAME_VERSION_NAMES}" && -z "${CURSEFORGE_GAME_VERSION_IDS}" && -z "${CURSEFORGE_LATEST_GAME_VERSION_SEED_ID}" ]]; then
+            echo "Missing repository variable: set CURSEFORGE_GAME_VERSION_IDS, CURSEFORGE_GAME_VERSION_NAMES, or CURSEFORGE_LATEST_GAME_VERSION_SEED_ID" >&2
             exit 1
           fi
 
@@ -84,6 +85,7 @@ jobs:
           CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
           CURSEFORGE_GAME_VERSION_NAMES: ${{ vars.CURSEFORGE_GAME_VERSION_NAMES }}
           CURSEFORGE_GAME_VERSION_IDS: ${{ vars.CURSEFORGE_GAME_VERSION_IDS }}
+          CURSEFORGE_LATEST_GAME_VERSION_SEED_ID: ${{ vars.CURSEFORGE_LATEST_GAME_VERSION_SEED_ID }}
           PACKAGE_NAME: ${{ steps.package.outputs.package_name }}
           VERSION: ${{ steps.package.outputs.version }}
         run: |
@@ -102,22 +104,54 @@ jobs:
               "https://wow.curseforge.com/api/game/versions" \
               > game-versions.json
 
-            game_versions="$(jq -c \
-              --argjson wanted "${CURSEFORGE_GAME_VERSION_NAMES}" \
-              '[.[] | select(.name as $name | $wanted | index($name)) | .id]' \
-              game-versions.json)"
+            if [[ -n "${CURSEFORGE_LATEST_GAME_VERSION_SEED_ID}" ]]; then
+              seed_type_id="$(jq -r \
+                --argjson seedID "${CURSEFORGE_LATEST_GAME_VERSION_SEED_ID}" \
+                '.[] | select(.id == $seedID) | .gameVersionTypeID // empty' \
+                game-versions.json)"
 
-            missing_versions="$(jq -c \
-              --argjson wanted "${CURSEFORGE_GAME_VERSION_NAMES}" \
-              '([.[].name] as $available | $wanted | map(select(. as $wantedName | ($available | index($wantedName) | not))))' \
-              game-versions.json)"
+              if [[ -z "${seed_type_id}" ]]; then
+                echo "Could not find CURSEFORGE_LATEST_GAME_VERSION_SEED_ID=${CURSEFORGE_LATEST_GAME_VERSION_SEED_ID} in CurseForge game versions." >&2
+                exit 1
+              fi
 
-            if [[ "${missing_versions}" != "[]" ]]; then
-              echo "Could not resolve these CURSEFORGE_GAME_VERSION_NAMES to numeric CurseForge IDs: ${missing_versions}" >&2
-              echo "Use exact names from https://wow.curseforge.com/api/game/versions, or set CURSEFORGE_GAME_VERSION_IDS instead." >&2
-              echo "Potential WoW Classic/TBC matches:" >&2
-              jq -r '.[] | select(.name | test("classic|burning|tbc|2\\."; "i")) | "  \(.id): \(.name)"' game-versions.json | head -100 >&2
-              exit 1
+              latest_version="$(jq -c \
+                --argjson typeID "${seed_type_id}" \
+                '[
+                  .[]
+                  | select(.gameVersionTypeID == $typeID)
+                  | select(.name | test("^[0-9]+(\\.[0-9]+)*$"))
+                  | { id, name, parts: (.name | split(".") | map(tonumber)) }
+                ] | sort_by(.parts) | last // empty' \
+                game-versions.json)"
+
+              if [[ -z "${latest_version}" ]]; then
+                echo "Could not find a numeric latest game version for gameVersionTypeID=${seed_type_id}." >&2
+                exit 1
+              fi
+
+              latest_id="$(jq -r '.id' <<< "${latest_version}")"
+              latest_name="$(jq -r '.name' <<< "${latest_version}")"
+              game_versions="[${latest_id}]"
+              echo "Resolved latest CurseForge game version for type ${seed_type_id}: ${latest_name} (${latest_id})"
+            else
+              game_versions="$(jq -c \
+                --argjson wanted "${CURSEFORGE_GAME_VERSION_NAMES}" \
+                '[.[] | select(.name as $name | $wanted | index($name)) | .id]' \
+                game-versions.json)"
+
+              missing_versions="$(jq -c \
+                --argjson wanted "${CURSEFORGE_GAME_VERSION_NAMES}" \
+                '([.[].name] as $available | $wanted | map(select(. as $wantedName | ($available | index($wantedName) | not))))' \
+                game-versions.json)"
+
+              if [[ "${missing_versions}" != "[]" ]]; then
+                echo "Could not resolve these CURSEFORGE_GAME_VERSION_NAMES to numeric CurseForge IDs: ${missing_versions}" >&2
+                echo "Use exact names from https://wow.curseforge.com/api/game/versions, set CURSEFORGE_GAME_VERSION_IDS, or set CURSEFORGE_LATEST_GAME_VERSION_SEED_ID." >&2
+                echo "Potential WoW Classic/TBC matches:" >&2
+                jq -r '.[] | select(.name | test("classic|burning|tbc|2\\."; "i")) | "  \(.id): \(.name) (type \(.gameVersionTypeID))"' game-versions.json | head -100 >&2
+                exit 1
+              fi
             fi
           fi
 
