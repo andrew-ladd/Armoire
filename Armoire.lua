@@ -3,6 +3,7 @@ local ADDON_NAME = ...
 local Armoire = CreateFrame("Frame")
 local DB
 local MAX_VISIBLE_SETS = 10
+local ICON_TEXTURE = "Interface\\AddOns\\Armoire\\armoire-icon-256.png"
 
 local EQUIPMENT_SLOTS = {
     { id = INVSLOT_HEAD, name = "Head" },
@@ -76,6 +77,20 @@ local function BagHasItemLink(link)
     end
 
     return false
+end
+
+local function FindEquippedItemSlot(link, targetSlotID)
+    if not link then
+        return nil
+    end
+
+    for _, slotInfo in ipairs(EQUIPMENT_SLOTS) do
+        if slotInfo.id ~= targetSlotID and GetInventoryItemLink("player", slotInfo.id) == link then
+            return slotInfo.id
+        end
+    end
+
+    return nil
 end
 
 local function FindSet(name)
@@ -182,8 +197,35 @@ function Armoire:DeleteSet(name)
         end
     end
 
-    Print("No set named \"" .. name .. "\".")
+    Print("No set named \"" .. tostring(name) .. "\".")
 end
+
+function Armoire:ConfirmDeleteSet(name)
+    local set = FindSet(name)
+    if not set then
+        if Normalize(name) == "" then
+            Print("Usage: /armoire delete <set name>")
+        else
+            Print("No set named \"" .. tostring(name) .. "\".")
+        end
+        return
+    end
+
+    StaticPopup_Show("ARMOIRE_CONFIRM_DELETE_SET", set.name, nil, set.name)
+end
+
+StaticPopupDialogs.ARMOIRE_CONFIRM_DELETE_SET = {
+    text = "Delete equipment set \"%s\"?",
+    button1 = DELETE,
+    button2 = CANCEL,
+    OnAccept = function(self, setName)
+        Armoire:DeleteSet(setName)
+    end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+    preferredIndex = 3,
+}
 
 function Armoire:EquipSet(name)
     local set = FindSet(name)
@@ -210,7 +252,12 @@ function Armoire:EquipSet(name)
                     EquipItemByName(item.link, slotInfo.id)
                     equipped = equipped + 1
                 else
-                    table.insert(missing, slotInfo.name)
+                    local equippedSlotID = FindEquippedItemSlot(item.link, slotInfo.id)
+                    if equippedSlotID and self:MoveEquippedItem(equippedSlotID, slotInfo.id) then
+                        equipped = equipped + 1
+                    else
+                        table.insert(missing, slotInfo.name)
+                    end
                 end
             end
         end
@@ -257,6 +304,51 @@ function Armoire:SelectSet(name)
     local set = FindSet(name)
     DB.selectedSet = set and set.name or nil
     self:RefreshUI()
+end
+
+function Armoire:MoveEquippedItem(sourceSlotID, targetSlotID)
+    if CursorHasItem and CursorHasItem() then
+        Print("Clear your cursor before equipping a set.")
+        return false
+    end
+
+    PickupInventoryItem(sourceSlotID)
+    PickupInventoryItem(targetSlotID)
+
+    if CursorHasItem and CursorHasItem() then
+        PickupInventoryItem(sourceSlotID)
+    end
+
+    return not (CursorHasItem and CursorHasItem())
+end
+
+function Armoire:SaveFramePosition()
+    if not self.frame or not DB then
+        return
+    end
+
+    local point, _, relativePoint, xOfs, yOfs = self.frame:GetPoint(1)
+    DB.framePosition = {
+        point = point,
+        relativePoint = relativePoint,
+        xOfs = xOfs,
+        yOfs = yOfs,
+    }
+end
+
+function Armoire:RestoreFramePosition()
+    if not self.frame or not DB or type(DB.framePosition) ~= "table" then
+        return
+    end
+
+    self.frame:ClearAllPoints()
+    self.frame:SetPoint(
+        DB.framePosition.point or "CENTER",
+        UIParent,
+        DB.framePosition.relativePoint or "CENTER",
+        tonumber(DB.framePosition.xOfs) or 0,
+        tonumber(DB.framePosition.yOfs) or 0
+    )
 end
 
 function Armoire:PositionNearCharacterFrame()
@@ -333,10 +425,14 @@ function Armoire:CreateUI()
     frame:SetSize(460, 436)
     frame:SetPoint("CENTER")
     frame:SetMovable(true)
+    frame:SetClampedToScreen(true)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetScript("OnDragStop", function()
+        frame:StopMovingOrSizing()
+        Armoire:SaveFramePosition()
+    end)
     frame:Hide()
 
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -346,7 +442,7 @@ function Armoire:CreateUI()
     frame.portrait = frame:CreateTexture(nil, "ARTWORK")
     frame.portrait:SetSize(36, 36)
     frame.portrait:SetPoint("TOPLEFT", 14, -28)
-    frame.portrait:SetTexture("Interface\\Icons\\INV_Helmet_03")
+    frame.portrait:SetTexture(ICON_TEXTURE)
     frame.portrait:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     frame.nameBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
@@ -465,7 +561,7 @@ function Armoire:CreateUI()
     frame.deleteButton:SetScript("OnClick", function()
         local set = Armoire:GetSelectedSet()
         if set then
-            Armoire:DeleteSet(set.name)
+            Armoire:ConfirmDeleteSet(set.name)
         end
     end)
 
@@ -475,6 +571,7 @@ function Armoire:CreateUI()
     frame.more:SetJustifyH("LEFT")
 
     self.frame = frame
+    self:RestoreFramePosition()
 end
 
 function Armoire:RefreshUI()
@@ -554,7 +651,7 @@ function Armoire:ToggleUI(anchorToCharacter)
     if self.frame:IsShown() then
         self.frame:Hide()
     else
-        if anchorToCharacter then
+        if anchorToCharacter and not (DB and DB.framePosition) then
             self:PositionNearCharacterFrame()
         end
         self.frame:Show()
@@ -579,7 +676,7 @@ function Armoire:CreateCharacterButton()
     button.icon = button:CreateTexture(nil, "ARTWORK")
     button.icon:SetSize(20, 20)
     button.icon:SetPoint("TOPLEFT", 7, -6)
-    button.icon:SetTexture("Interface\\Icons\\INV_Helmet_03")
+    button.icon:SetTexture(ICON_TEXTURE)
     button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     button.border = button:CreateTexture(nil, "OVERLAY")
@@ -644,7 +741,7 @@ function Armoire:HandleSlash(input)
     elseif command == "equip" then
         self:EquipSet(rest)
     elseif command == "delete" or command == "del" or command == "remove" then
-        self:DeleteSet(rest)
+        self:ConfirmDeleteSet(rest)
     elseif command == "list" then
         self:ListSets()
     else
