@@ -3,7 +3,7 @@ local ADDON_NAME = ...
 local Armoire = CreateFrame("Frame")
 local DB
 local MAX_VISIBLE_SETS = 10
-local ICON_TEXTURE = "Interface\\AddOns\\Armoire\\armoire-icon-256"
+local ICON_TEXTURE = "Interface\\AddOns\\Armoire\\armoire-icon-256.png"
 
 local EQUIPMENT_SLOTS = {
     { id = INVSLOT_HEAD, name = "Head" },
