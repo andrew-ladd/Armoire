@@ -58,6 +58,7 @@ jobs:
           CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
           CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
           CURSEFORGE_GAME_VERSION_NAMES: ${{ vars.CURSEFORGE_GAME_VERSION_NAMES }}
+          CURSEFORGE_GAME_VERSION_IDS: ${{ vars.CURSEFORGE_GAME_VERSION_IDS }}
         run: |
           set -euo pipefail
 
@@ -71,8 +72,8 @@ jobs:
             exit 1
           fi
 
-          if [[ -z "${CURSEFORGE_GAME_VERSION_NAMES}" ]]; then
-            echo "Missing repository variable: CURSEFORGE_GAME_VERSION_NAMES" >&2
+          if [[ -z "${CURSEFORGE_GAME_VERSION_NAMES}" && -z "${CURSEFORGE_GAME_VERSION_IDS}" ]]; then
+            echo "Missing repository variable: set CURSEFORGE_GAME_VERSION_IDS or CURSEFORGE_GAME_VERSION_NAMES" >&2
             exit 1
           fi
 
@@ -82,6 +83,7 @@ jobs:
           CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
           CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
           CURSEFORGE_GAME_VERSION_NAMES: ${{ vars.CURSEFORGE_GAME_VERSION_NAMES }}
+          CURSEFORGE_GAME_VERSION_IDS: ${{ vars.CURSEFORGE_GAME_VERSION_IDS }}
           PACKAGE_NAME: ${{ steps.package.outputs.package_name }}
           VERSION: ${{ steps.package.outputs.version }}
         run: |
@@ -92,16 +94,48 @@ jobs:
             changelog="Armoire ${VERSION} (${GITHUB_REF_NAME})"
           fi
 
+          if [[ -n "${CURSEFORGE_GAME_VERSION_IDS}" ]]; then
+            game_versions="$(jq -c 'map(tonumber)' <<< "${CURSEFORGE_GAME_VERSION_IDS}")"
+          else
+            curl --fail-with-body \
+              -H "X-Api-Token: ${CURSEFORGE_API_TOKEN}" \
+              "https://wow.curseforge.com/api/game/versions" \
+              > game-versions.json
+
+            game_versions="$(jq -c \
+              --argjson wanted "${CURSEFORGE_GAME_VERSION_NAMES}" \
+              '[.[] | select(.name as $name | $wanted | index($name)) | .id]' \
+              game-versions.json)"
+
+            missing_versions="$(jq -c \
+              --argjson wanted "${CURSEFORGE_GAME_VERSION_NAMES}" \
+              '([.[].name] as $available | $wanted | map(select(. as $wantedName | ($available | index($wantedName) | not))))' \
+              game-versions.json)"
+
+            if [[ "${missing_versions}" != "[]" ]]; then
+              echo "Could not resolve these CURSEFORGE_GAME_VERSION_NAMES to numeric CurseForge IDs: ${missing_versions}" >&2
+              echo "Use exact names from https://wow.curseforge.com/api/game/versions, or set CURSEFORGE_GAME_VERSION_IDS instead." >&2
+              echo "Potential WoW Classic/TBC matches:" >&2
+              jq -r '.[] | select(.name | test("classic|burning|tbc|2\\."; "i")) | "  \(.id): \(.name)"' game-versions.json | head -100 >&2
+              exit 1
+            fi
+          fi
+
+          if [[ "${game_versions}" == "[]" ]]; then
+            echo "No CurseForge game version IDs were resolved." >&2
+            exit 1
+          fi
+
           jq -n \
             --arg changelog "${changelog}" \
             --arg displayName "Armoire ${VERSION}" \
             --arg releaseType "release" \
-            --argjson gameVersionNames "${CURSEFORGE_GAME_VERSION_NAMES}" \
+            --argjson gameVersions "${game_versions}" \
             '{
               changelog: $changelog,
               changelogType: "markdown",
               displayName: $displayName,
-              gameVersionNames: $gameVersionNames,
+              gameVersions: $gameVersions,
               releaseType: $releaseType
             }' > metadata.json
 
