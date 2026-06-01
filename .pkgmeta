@@ -1,0 +1,9 @@
+package-as: Armoire
+
+ignore:
+  - .github
+  - .gitignore
+  - .pkgmeta
+  - README.md
+  - build
+  - dist

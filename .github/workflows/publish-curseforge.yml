@@ -9,172 +9,20 @@ on:
 
 jobs:
   publish:
-    name: Upload tagged release
+    name: Package and upload tagged release
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Build CurseForge zip
-        id: package
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          version="$(awk -F': ' '/^## Version:/ { print $2; exit }' Armoire.toc)"
-          if [[ -z "${version}" ]]; then
-            echo "Could not read addon version from Armoire.toc" >&2
-            exit 1
-          fi
-
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            tag_version="${GITHUB_REF_NAME#v}"
-            tag_version="${tag_version#release/}"
-            if [[ "${tag_version}" != "${version}" ]]; then
-              echo "Tag version ${tag_version} does not match Armoire.toc version ${version}" >&2
-              exit 1
-            fi
-          fi
-
-          package_name="armoire-${version}"
-          echo "package_name=${package_name}" >> "${GITHUB_OUTPUT}"
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-
-          rm -rf build dist
-          mkdir -p "build/Armoire" dist
-
-          cp Armoire.toc "build/Armoire/"
-          cp Armoire.lua "build/Armoire/"
-          cp armoire-icon-256.png "build/Armoire/"
-
-          (cd build && zip -r "../dist/${package_name}.zip" Armoire)
-
-          unzip -l "dist/${package_name}.zip"
-
-      - name: Validate CurseForge configuration
-        shell: bash
+      - name: Publish with BigWigs packager
+        uses: BigWigsMods/packager@master
         env:
-          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
-          CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
-          CURSEFORGE_GAME_VERSION_NAMES: ${{ vars.CURSEFORGE_GAME_VERSION_NAMES }}
-          CURSEFORGE_GAME_VERSION_IDS: ${{ vars.CURSEFORGE_GAME_VERSION_IDS }}
-          CURSEFORGE_LATEST_GAME_VERSION_SEED_ID: ${{ vars.CURSEFORGE_LATEST_GAME_VERSION_SEED_ID }}
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${CURSEFORGE_API_TOKEN}" ]]; then
-            echo "Missing repository secret: CURSEFORGE_API_TOKEN" >&2
-            exit 1
-          fi
-
-          if [[ -z "${CURSEFORGE_PROJECT_ID}" ]]; then
-            echo "Missing repository variable: CURSEFORGE_PROJECT_ID" >&2
-            exit 1
-          fi
-
-          if [[ -z "${CURSEFORGE_GAME_VERSION_NAMES}" && -z "${CURSEFORGE_GAME_VERSION_IDS}" && -z "${CURSEFORGE_LATEST_GAME_VERSION_SEED_ID}" ]]; then
-            echo "Missing repository variable: set CURSEFORGE_GAME_VERSION_IDS, CURSEFORGE_GAME_VERSION_NAMES, or CURSEFORGE_LATEST_GAME_VERSION_SEED_ID" >&2
-            exit 1
-          fi
-
-      - name: Upload to CurseForge
-        shell: bash
-        env:
-          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
-          CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
-          CURSEFORGE_GAME_VERSION_NAMES: ${{ vars.CURSEFORGE_GAME_VERSION_NAMES }}
-          CURSEFORGE_GAME_VERSION_IDS: ${{ vars.CURSEFORGE_GAME_VERSION_IDS }}
-          CURSEFORGE_LATEST_GAME_VERSION_SEED_ID: ${{ vars.CURSEFORGE_LATEST_GAME_VERSION_SEED_ID }}
-          PACKAGE_NAME: ${{ steps.package.outputs.package_name }}
-          VERSION: ${{ steps.package.outputs.version }}
-        run: |
-          set -euo pipefail
-
-          changelog="Armoire ${VERSION}"
-          if [[ -n "${GITHUB_REF_NAME:-}" ]]; then
-            changelog="Armoire ${VERSION} (${GITHUB_REF_NAME})"
-          fi
-
-          if [[ -n "${CURSEFORGE_GAME_VERSION_IDS}" ]]; then
-            game_versions="$(jq -c 'map(tonumber)' <<< "${CURSEFORGE_GAME_VERSION_IDS}")"
-          else
-            curl --fail-with-body \
-              -H "X-Api-Token: ${CURSEFORGE_API_TOKEN}" \
-              "https://wow.curseforge.com/api/game/versions" \
-              > game-versions.json
-
-            if [[ -n "${CURSEFORGE_LATEST_GAME_VERSION_SEED_ID}" ]]; then
-              seed_type_id="$(jq -r \
-                --argjson seedID "${CURSEFORGE_LATEST_GAME_VERSION_SEED_ID}" \
-                '.[] | select(.id == $seedID) | .gameVersionTypeID // empty' \
-                game-versions.json)"
-
-              if [[ -z "${seed_type_id}" ]]; then
-                echo "Could not find CURSEFORGE_LATEST_GAME_VERSION_SEED_ID=${CURSEFORGE_LATEST_GAME_VERSION_SEED_ID} in CurseForge game versions." >&2
-                exit 1
-              fi
-
-              latest_version="$(jq -c \
-                --argjson typeID "${seed_type_id}" \
-                '[
-                  .[]
-                  | select(.gameVersionTypeID == $typeID)
-                  | select(.name | test("^[0-9]+(\\.[0-9]+)*$"))
-                  | { id, name, parts: (.name | split(".") | map(tonumber)) }
-                ] | sort_by(.parts) | last // empty' \
-                game-versions.json)"
-
-              if [[ -z "${latest_version}" ]]; then
-                echo "Could not find a numeric latest game version for gameVersionTypeID=${seed_type_id}." >&2
-                exit 1
-              fi
-
-              latest_id="$(jq -r '.id' <<< "${latest_version}")"
-              latest_name="$(jq -r '.name' <<< "${latest_version}")"
-              game_versions="[${latest_id}]"
-              echo "Resolved latest CurseForge game version for type ${seed_type_id}: ${latest_name} (${latest_id})"
-            else
-              game_versions="$(jq -c \
-                --argjson wanted "${CURSEFORGE_GAME_VERSION_NAMES}" \
-                '[.[] | select(.name as $name | $wanted | index($name)) | .id]' \
-                game-versions.json)"
-
-              missing_versions="$(jq -c \
-                --argjson wanted "${CURSEFORGE_GAME_VERSION_NAMES}" \
-                '([.[].name] as $available | $wanted | map(select(. as $wantedName | ($available | index($wantedName) | not))))' \
-                game-versions.json)"
-
-              if [[ "${missing_versions}" != "[]" ]]; then
-                echo "Could not resolve these CURSEFORGE_GAME_VERSION_NAMES to numeric CurseForge IDs: ${missing_versions}" >&2
-                echo "Use exact names from https://wow.curseforge.com/api/game/versions, set CURSEFORGE_GAME_VERSION_IDS, or set CURSEFORGE_LATEST_GAME_VERSION_SEED_ID." >&2
-                echo "Potential WoW Classic/TBC matches:" >&2
-                jq -r '.[] | select(.name | test("classic|burning|tbc|2\\."; "i")) | "  \(.id): \(.name) (type \(.gameVersionTypeID))"' game-versions.json | head -100 >&2
-                exit 1
-              fi
-            fi
-          fi
-
-          if [[ "${game_versions}" == "[]" ]]; then
-            echo "No CurseForge game version IDs were resolved." >&2
-            exit 1
-          fi
-
-          jq -n \
-            --arg changelog "${changelog}" \
-            --arg displayName "Armoire ${VERSION}" \
-            --arg releaseType "release" \
-            --argjson gameVersions "${game_versions}" \
-            '{
-              changelog: $changelog,
-              changelogType: "markdown",
-              displayName: $displayName,
-              gameVersions: $gameVersions,
-              releaseType: $releaseType
-            }' > metadata.json
-
-          curl --fail-with-body \
-            -H "X-Api-Token: ${CURSEFORGE_API_TOKEN}" \
-            -F "metadata=<metadata.json" \
-            -F "file=@dist/${PACKAGE_NAME}.zip" \
-            "https://wow.curseforge.com/api/projects/${CURSEFORGE_PROJECT_ID}/upload-file"
+          CF_API_KEY: ${{ secrets.CURSEFORGE_API_TOKEN }}
+        with:
+          args: >-
+            -p ${{ vars.CURSEFORGE_PROJECT_ID }}
+            -n "armoire-{project-version}:Armoire {project-version}"
