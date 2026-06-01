@@ -1,0 +1,50 @@
+name: Package Addon
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  package:
+    name: Build install zip
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build CurseForge zip
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(awk -F': ' '/^## Version:/ { print $2; exit }' Armoire.toc)"
+          if [[ -z "${version}" ]]; then
+            echo "Could not read addon version from Armoire.toc" >&2
+            exit 1
+          fi
+
+          package_name="Armoire-${version}"
+
+          rm -rf build dist
+          mkdir -p "build/Armoire" dist
+
+          cp Armoire.toc "build/Armoire/"
+          cp Armoire.lua "build/Armoire/"
+          cp armoire-icon-256.png "build/Armoire/"
+
+          (cd build && zip -r "../dist/${package_name}.zip" Armoire)
+
+          unzip -l "dist/${package_name}.zip"
+
+      - name: Upload install zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Armoire-install-zip
+          path: dist/Armoire-*.zip
+          if-no-files-found: error
