@@ -3,6 +3,8 @@ local ADDON_NAME = ...
 local Armoire = CreateFrame("Frame")
 local DB
 local MAX_VISIBLE_SETS = 10
+local ARMOIRE_FRAME_STRATA = "DIALOG"
+local ARMOIRE_FRAME_LEVEL = 100
 
 local EQUIPMENT_SLOTS = {
     { id = INVSLOT_HEAD, name = "Head" },
@@ -332,11 +334,24 @@ function Armoire:CreateUI()
     local frame = CreateFrame("Frame", "ArmoireFrame", UIParent, "BasicFrameTemplateWithInset")
     frame:SetSize(460, 436)
     frame:SetPoint("CENTER")
+    frame:SetFrameStrata(ARMOIRE_FRAME_STRATA)
+    frame:SetFrameLevel(ARMOIRE_FRAME_LEVEL)
+    frame:SetToplevel(true)
     frame:SetMovable(true)
     frame:EnableMouse(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetScript("OnMouseDown", function(self)
+        if self.Raise then
+            self:Raise()
+        end
+    end)
+    frame:SetScript("OnShow", function(self)
+        if self.Raise then
+            self:Raise()
+        end
+    end)
     frame:Hide()
 
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
