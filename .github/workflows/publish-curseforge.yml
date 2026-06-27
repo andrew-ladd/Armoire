@@ -1,0 +1,28 @@
+name: Publish to CurseForge
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "release/*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Package and upload tagged release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish with BigWigs packager
+        uses: BigWigsMods/packager@master
+        env:
+          CF_API_KEY: ${{ secrets.CURSEFORGE_API_TOKEN }}
+        with:
+          args: >-
+            -p ${{ vars.CURSEFORGE_PROJECT_ID }}
+            -n "armoire-{project-version}:Armoire {project-version}"

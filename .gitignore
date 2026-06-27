@@ -1,1 +1,6 @@
 .tools/
+*.zip
+.DS_Store
+build/
+dist/
+.release/
