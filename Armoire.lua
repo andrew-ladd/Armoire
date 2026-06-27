@@ -483,6 +483,7 @@ function Armoire:CreateUI()
         if self.Raise then
             self:Raise()
         end
+    end)
     frame:SetScript("OnDragStop", function()
         frame:StopMovingOrSizing()
         Armoire:SaveFramePosition()
