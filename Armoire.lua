@@ -3,8 +3,8 @@ local ADDON_NAME = ...
 local Armoire = CreateFrame("Frame")
 local DB
 local MAX_VISIBLE_SETS = 10
-local ARMOIRE_FRAME_STRATA = "DIALOG"
-local ARMOIRE_FRAME_LEVEL = 100
+local ARMOIRE_FRAME_STRATA = "TOOLTIP"
+local ARMOIRE_FRAME_LEVEL = 1000
 
 local EQUIPMENT_SLOTS = {
     { id = INVSLOT_HEAD, name = "Head" },
@@ -123,6 +123,37 @@ local function CountSetSlots(set)
         count = count + 1
     end
     return count
+end
+
+local function CountEquippedSetSlots(set)
+    local count = 0
+    if not set or not set.slots then
+        return count
+    end
+
+    for _, slotInfo in ipairs(EQUIPMENT_SLOTS) do
+        local item = set.slots[tostring(slotInfo.id)]
+        if item and item.link and GetInventoryItemLink("player", slotInfo.id) == item.link then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+local function ColorText(text, color)
+    return "|cff" .. color .. text .. "|r"
+end
+
+local function GetEquippedStatusText(equippedSlotCount, savedSlotCount)
+    local color = "888888"
+    if savedSlotCount > 0 and equippedSlotCount == savedSlotCount then
+        color = "55ff55"
+    elseif equippedSlotCount > 0 then
+        color = "ffff66"
+    end
+
+    return "Equipped: " .. ColorText(equippedSlotCount .. " / " .. savedSlotCount, color)
 end
 
 local function SetTextureColor(texture, r, g, b, a)
@@ -318,8 +349,13 @@ function Armoire:GetSetSummary(set)
 
     local present = {}
     for _, slotInfo in ipairs(EQUIPMENT_SLOTS) do
-        if set.slots and set.slots[tostring(slotInfo.id)] then
-            table.insert(present, slotInfo.name)
+        local item = set.slots and set.slots[tostring(slotInfo.id)]
+        if item then
+            local color = "888888"
+            if item.link and GetInventoryItemLink("player", slotInfo.id) == item.link then
+                color = "55ff55"
+            end
+            table.insert(present, ColorText(slotInfo.name, color))
         end
     end
 
@@ -343,11 +379,15 @@ function Armoire:CreateUI()
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:SetScript("OnMouseDown", function(self)
+        self:SetFrameStrata(ARMOIRE_FRAME_STRATA)
+        self:SetFrameLevel(ARMOIRE_FRAME_LEVEL)
         if self.Raise then
             self:Raise()
         end
     end)
     frame:SetScript("OnShow", function(self)
+        self:SetFrameStrata(ARMOIRE_FRAME_STRATA)
+        self:SetFrameLevel(ARMOIRE_FRAME_LEVEL)
         if self.Raise then
             self:Raise()
         end
@@ -445,11 +485,16 @@ function Armoire:CreateUI()
     frame.selectedDetails:SetPoint("RIGHT", frame.detailPanel, "RIGHT", -14, 0)
     frame.selectedDetails:SetJustifyH("LEFT")
 
+    frame.equippedStatus = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    frame.equippedStatus:SetPoint("TOPLEFT", frame.selectedDetails, "BOTTOMLEFT", 0, -8)
+    frame.equippedStatus:SetPoint("RIGHT", frame.detailPanel, "RIGHT", -14, 0)
+    frame.equippedStatus:SetJustifyH("LEFT")
+
     frame.slotSummary = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    frame.slotSummary:SetPoint("TOPLEFT", frame.selectedDetails, "BOTTOMLEFT", 0, -12)
+    frame.slotSummary:SetPoint("TOPLEFT", frame.equippedStatus, "BOTTOMLEFT", 0, -12)
     frame.slotSummary:SetPoint("RIGHT", frame.detailPanel, "RIGHT", -14, 0)
     frame.slotSummary:SetJustifyH("LEFT")
-    frame.slotSummary:SetHeight(78)
+    frame.slotSummary:SetHeight(58)
 
     frame.equipButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     frame.equipButton:SetSize(174, 22)
@@ -527,8 +572,11 @@ function Armoire:RefreshUI()
     end
 
     if selectedSet then
+        local savedSlotCount = CountSetSlots(selectedSet)
+        local equippedSlotCount = CountEquippedSetSlots(selectedSet)
         self.frame.selectedTitle:SetText(selectedSet.name)
-        self.frame.selectedDetails:SetText(CountSetSlots(selectedSet) .. " saved equipment slots")
+        self.frame.selectedDetails:SetText(savedSlotCount .. " saved equipment slots")
+        self.frame.equippedStatus:SetText(GetEquippedStatusText(equippedSlotCount, savedSlotCount))
         self.frame.slotSummary:SetText(self:GetSetSummary(selectedSet))
         self.frame.equipButton:Enable()
         self.frame.updateButton:Enable()
@@ -536,6 +584,7 @@ function Armoire:RefreshUI()
     else
         self.frame.selectedTitle:SetText("No set selected")
         self.frame.selectedDetails:SetText("Create a set from your currently equipped gear.")
+        self.frame.equippedStatus:SetText("")
         self.frame.slotSummary:SetText("")
         self.frame.equipButton:Disable()
         self.frame.updateButton:Disable()
