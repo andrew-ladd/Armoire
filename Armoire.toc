@@ -1,4 +1,4 @@
-## Interface: 20505
+## Interface: 20506
 ## Title: Armoire
 ## Notes: Save and equip gear sets with a small, per-character wardrobe.
 ## Author: Andre

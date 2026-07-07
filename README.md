@@ -10,7 +10,7 @@ Copy this folder to:
 World of Warcraft/_anniversary_/Interface/AddOns/Armoire
 ```
 
-The addon currently targets interface `20505`, used by TBC Anniversary 2.5.5.
+The addon currently targets interface `20506`, used by TBC Anniversary 2.5.6.
 
 ## Use
 
