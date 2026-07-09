@@ -3,6 +3,8 @@ local ADDON_NAME = ...
 local Armoire = CreateFrame("Frame")
 local DB
 local MAX_VISIBLE_SETS = 10
+local REFRESH_RETRY_DELAY = 0.1
+local REFRESH_RETRY_ATTEMPTS = 10
 local ARMOIRE_FRAME_STRATA = "TOOLTIP"
 local ARMOIRE_FRAME_LEVEL = 1000
 local ICON_TEXTURE = "Interface\\AddOns\\Armoire\\armoire-icon-256.png"
@@ -207,7 +209,7 @@ function Armoire:SaveSet(name)
 
     SortSets()
     DB.selectedSet = set.name
-    self:RefreshUI()
+    self:RefreshUIUntilSettled(set.name)
     Print("Saved \"" .. name .. "\" with " .. CountSetSlots(set) .. " items.")
 end
 
@@ -711,6 +713,48 @@ function Armoire:RefreshUI()
     end
 end
 
+function Armoire:RefreshUISoon()
+    if not C_Timer or not C_Timer.After then
+        self:RefreshUI()
+        return
+    end
+
+    C_Timer.After(REFRESH_RETRY_DELAY, function()
+        Armoire:RefreshUI()
+    end)
+end
+
+function Armoire:RefreshUIUntilSettled(setName, attemptsRemaining)
+    self.refreshGeneration = (self.refreshGeneration or 0) + 1
+    local generation = self.refreshGeneration
+    attemptsRemaining = attemptsRemaining or REFRESH_RETRY_ATTEMPTS
+
+    local function refresh()
+        if generation ~= Armoire.refreshGeneration then
+            return
+        end
+
+        Armoire:RefreshUI()
+
+        local set = FindSet(setName)
+        if not set then
+            return
+        end
+
+        local savedSlotCount = CountSetSlots(set)
+        if savedSlotCount == 0 or CountEquippedSetSlots(set) == savedSlotCount or attemptsRemaining <= 0 then
+            return
+        end
+
+        attemptsRemaining = attemptsRemaining - 1
+        if C_Timer and C_Timer.After then
+            C_Timer.After(REFRESH_RETRY_DELAY, refresh)
+        end
+    end
+
+    refresh()
+end
+
 function Armoire:ToggleUI(anchorToCharacter)
     if self.frame:IsShown() then
         self.frame:Hide()
@@ -835,9 +879,15 @@ Armoire:SetScript("OnEvent", function(self, event, arg1)
         self:EquipSet(pendingSet)
     elseif event == "PLAYER_LOGIN" then
         self:CreateCharacterButton()
+    elseif event == "PLAYER_EQUIPMENT_CHANGED" or (event == "UNIT_INVENTORY_CHANGED" and arg1 == "player") then
+        if self.frame and self.frame:IsShown() then
+            self:RefreshUISoon()
+        end
     end
 end)
 
 Armoire:RegisterEvent("ADDON_LOADED")
 Armoire:RegisterEvent("PLAYER_LOGIN")
 Armoire:RegisterEvent("PLAYER_REGEN_ENABLED")
+Armoire:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+Armoire:RegisterEvent("UNIT_INVENTORY_CHANGED")
